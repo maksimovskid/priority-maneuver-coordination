@@ -10,7 +10,25 @@ The project demonstrates scalable coordination strategies and serves as a founda
 
 ## Demo
 
+### Cascading Coordination
+
 ![Cascading coordination demo](docs/media/cascading_coordination_animation.gif)
+
+### Two-Vehicle Coordination
+
+![Two-vehicle coordination demo](docs/media/two_vehicles_coordination_animation.gif)
+
+### Three-Vehicle Coordination
+
+![Three-vehicle coordination demo](docs/media/three_vehicles_coordination_animation.gif)
+
+### Summary Plots
+
+| Scenario | Trajectory Tracking | Speed Profiles |
+| --- | --- | --- |
+| Two vehicles | ![Two-vehicle trajectories](docs/media/two_vehicles_coordination_trajectories.png) | ![Two-vehicle speeds](docs/media/two_vehicles_coordination_speeds.png) |
+| Three vehicles | ![Three-vehicle trajectories](docs/media/three_vehicles_coordination_trajectories.png) | ![Three-vehicle speeds](docs/media/three_vehicles_coordination_speeds.png) |
+| Cascading | ![Cascading trajectories](docs/media/cascading_coordination_trajectories.png) | ![Cascading speeds](docs/media/cascading_coordination_speeds.png) |
 
 ## Paper and Citation
 
