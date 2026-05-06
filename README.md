@@ -8,6 +8,10 @@ AI-assisted development (Codex) was used to support refactoring, code structurin
 
 The project demonstrates scalable coordination strategies and serves as a foundation for further research in connected and automated driving.
 
+## Demo
+
+![Cascading coordination demo](docs/media/cascading_coordination_animation.gif)
+
 ## Paper and Citation
 
 This repository is closely related to the following paper and should be read as a practical codebase built around the same PriMa coordination ideas:

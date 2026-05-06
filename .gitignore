@@ -22,4 +22,6 @@ dist/
 *.png
 *.mp4
 *.gif
+!docs/media/
+!docs/media/*.gif
 output/
