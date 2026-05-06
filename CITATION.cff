@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use this repository, please cite the related PriMa paper."
+title: "Priority Maneuver Coordination"
+authors:
+  - family-names: "Maksimovski"
+    given-names: "Daniel"
+repository-code: "https://github.com/maksimovskid/priority-maneuver-coordination"
+preferred-citation:
+  type: conference-paper
+  title: "Priority Maneuver (PriMa) Coordination for Connected and Automated Vehicles"
+  authors:
+    - family-names: "Maksimovski"
+      given-names: "Daniel"
+    - family-names: "Facchi"
+      given-names: "Christian"
+    - family-names: "Festag"
+      given-names: "Andreas"
+  conference:
+    name: "2021 IEEE International Intelligent Transportation Systems Conference (ITSC)"
+  year: 2021
+  start: 1083
+  end: 1089
+  doi: "10.1109/ITSC48978.2021.9564923"

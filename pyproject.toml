@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "maneuver-coordination"
+version = "0.1.0"
+description = "Python simulation and planning utilities for cooperative maneuver coordination."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  { name = "Daniel Maksimovski and contributors" }
+]
+dependencies = [
+  "matplotlib>=3.7",
+  "numpy>=1.24",
+  "scipy>=1.10",
+]
+keywords = ["autonomous-driving", "trajectory-planning", "maneuver-coordination", "simulation"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering",
+]
+
+[project.scripts]
+maneuver-coordination = "maneuver_coordination.cli:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["maneuver_coordination*"]
