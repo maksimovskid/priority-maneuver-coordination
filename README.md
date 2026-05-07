@@ -65,6 +65,34 @@ This project is released under the MIT License. See [LICENSE](LICENSE).
 
 If you use this repository for academic or published work, please cite the PriMa paper listed above. GitHub-compatible citation metadata is also provided in [CITATION.cff](CITATION.cff).
 
+## Quick Start
+
+Install the package locally:
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e .
+```
+
+Run one scenario:
+
+```bash
+python run.py cascading_coordination
+```
+
+Run headlessly and save plots/GIF output:
+
+```bash
+python run.py cascading_coordination --no-animation --save-output-dir output --save-animation
+```
+
+Run tests:
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```
+
 ## What This Repository Simulates
 
 The project simulates vehicles that:
@@ -194,8 +222,8 @@ At a high level, the simulation loop does the following:
    - medium priority: up to `40%`
    - high priority: up to `75%`
 8. The chosen cooperative response is then tracked with bounded acceleration / deceleration:
-   - low priority: up to about `2.0 m/s²`
-   - medium priority: up to about `4.0 m/s²`
+   - low priority: up to about `2.0 m/s^2`
+   - medium priority: up to about `4.0 m/s^2`
    - high priority: stronger adaptation if needed
 9. Depending on the scenario, the response can follow:
    - direct request / accept-reject
@@ -222,7 +250,7 @@ One important design direction in this repository is separating:
 - runtime behavior/state: `normal_operation`, `requester`, `acceptor`
 - runtime traffic relations: vehicle ahead, target-lane front vehicle, target-lane rear vehicle
 
-This means the visible simulation and logging no longer depend on fixed labels like “lead” or “acceptor” as permanent external identities.
+This means the visible simulation and logging no longer depend on fixed labels like `lead` or `acceptor` as permanent external identities.
 
 Internally, some scenario setup still uses named roles such as `ego`, `acceptor_1`, or `acceptor_2`, but the code has been moving toward:
 
@@ -311,11 +339,16 @@ maneuver_coordination/
     hybrid_a_star.py
     reeds_shepp_path_planning.py
     rrt.py
+    rrt_1.py
     rrt_reeds_shepp.py
+    rrt_reeds_shepp_demo.py
 
   scenarios/
     cascading_coordination.py
     coordination_2_vehicles.py
+    rejected_request_then_free_lane.py
+    three_vehicles_coordination.py
+    three_vehicles_coordination_4_messages.py
 
   simulation/
     runner.py
