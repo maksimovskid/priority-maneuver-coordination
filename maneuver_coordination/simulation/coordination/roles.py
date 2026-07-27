@@ -14,6 +14,7 @@ from maneuver_coordination.simulation.core.settings import (
     VEHICLE_COLLISION_DISTANCE,
 )
 from maneuver_coordination.simulation.core.types import PlannedPath, State, VehicleConfig
+from maneuver_coordination.vehicle.model import LENGTH as DEFAULT_VEHICLE_LENGTH
 
 
 def get_role_to_index(vehicle_configs: Sequence[VehicleConfig]) -> Dict[str, int]:
@@ -174,14 +175,19 @@ def should_trigger_maneuver_search(
     lead_history,
     existing_path_length: int = 0,
 ) -> bool:
-    """Decide whether a follower should start searching for a lane change."""
+    """Decide whether a follower should start searching for a lane change.
+
+    The gap is an approximate bumper-to-bumper clearance from rear-axle state
+    references for identical vehicle geometry.
+    """
     if existing_path_length >= 2 or lead_state.x <= follower_state.x:
         return False
 
-    lead_car_distance = math.hypot(follower_state.x - lead_state.x, follower_state.y - lead_state.y) - 4.0
+    reference_distance = math.hypot(follower_state.x - lead_state.x, follower_state.y - lead_state.y)
+    bumper_gap = reference_distance - DEFAULT_VEHICLE_LENGTH
     distance_gap = C.PLANNER_PARAMS.safe_time_gap * follower_state.v
     lead_is_slowing = lead_state.v < C.PLANNER_PARAMS.lane_change_trigger_speed or is_vehicle_braking(lead_history)
-    return lead_car_distance < distance_gap and lead_is_slowing
+    return bumper_gap < distance_gap and lead_is_slowing
 
 
 def build_acc_speed_profile(

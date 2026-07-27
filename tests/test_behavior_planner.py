@@ -4,6 +4,11 @@ from maneuver_coordination.coordination.behavior_planner import (
     BehaviouralLocalPlanner,
     ReferencePath,
 )
+from maneuver_coordination.coordination.decision_logic import (
+    DEFAULT_VEHICLE_LENGTH,
+    check_for_double_lane_change,
+    check_for_lane_change,
+)
 from maneuver_coordination.coordination.constants import (
     SECOND_LANE_Y,
     execute_request,
@@ -75,6 +80,32 @@ class BehaviorPlannerTests(unittest.TestCase):
         )
 
         self.assertEqual(current_state, find_lane_change)
+
+    def test_default_vehicle_length_matches_existing_geometry(self):
+        self.assertEqual(DEFAULT_VEHICLE_LENGTH, 4.0)
+
+    def test_reference_distance_subtracts_vehicle_length_for_bumper_gap(self):
+        reference_distance = 10.0
+
+        bumper_gap = reference_distance - DEFAULT_VEHICLE_LENGTH
+
+        self.assertEqual(bumper_gap, 6.0)
+
+    def test_check_for_lane_change_preserves_close_and_distant_lead_behavior(self):
+        ego_state = make_state(x=0.0, y=2.0, v=10.0)
+        close_slow_lead = make_state(x=10.0, y=2.0, v=4.0)
+        distant_slow_lead = make_state(x=30.0, y=2.0, v=4.0)
+
+        self.assertTrue(check_for_lane_change(ego_state, close_slow_lead, existing_rrt_length=0))
+        self.assertFalse(check_for_lane_change(ego_state, distant_slow_lead, existing_rrt_length=0))
+
+    def test_check_for_double_lane_change_preserves_gap_threshold_behavior(self):
+        ego_state = make_state(x=0.0, y=2.0, v=10.0)
+        far_lead = make_state(x=20.0, y=2.0, v=4.0)
+        near_lead = make_state(x=12.0, y=2.0, v=4.0)
+
+        self.assertTrue(check_for_double_lane_change(ego_state, far_lead, existing_rrt_length=121))
+        self.assertFalse(check_for_double_lane_change(ego_state, near_lead, existing_rrt_length=121))
 
     def test_local_path_returns_base_path_while_following_lane(self):
         cx = [0.0, 1.0, 2.0]

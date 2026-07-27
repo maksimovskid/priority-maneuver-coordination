@@ -29,6 +29,7 @@ from maneuver_coordination.simulation.motion.speed_profiles import (
     calc_speed_profile_downstream_accepting_vehicle,
 )
 from maneuver_coordination.simulation.core.types import State, V2XMessage, VehicleConfig
+from maneuver_coordination.vehicle.model import LENGTH as DEFAULT_VEHICLE_LENGTH
 from maneuver_coordination.vehicle.plotting import connect_escape_key
 
 from maneuver_coordination.simulation.motion.adaptation import (
@@ -186,7 +187,8 @@ def run_multi_acceptor_three_vehicle_coordination_scenario(
             active_request_roles.clear()
         lead_dx = ego_state.x - lead_state.x
         lead_dy = ego_state.y - lead_state.y
-        lead_gap = math.hypot(lead_dx, lead_dy) - 4.0
+        reference_distance = math.hypot(lead_dx, lead_dy)
+        bumper_gap = reference_distance - DEFAULT_VEHICLE_LENGTH
         if (
             not coordination_completed
             and request_state == C.no_request_sent
@@ -212,7 +214,7 @@ def run_multi_acceptor_three_vehicle_coordination_scenario(
             and current_lane_id == config_by_role[requester_role].lane_id
             and lead_role is not None
             and time >= lead_braking_start_time
-            and lead_gap < max(C.PLANNER_PARAMS.safe_time_gap * ego_state.v + 2.0, 40.0)
+            and bumper_gap < max(C.PLANNER_PARAMS.safe_time_gap * ego_state.v + 2.0, 40.0)
         ):
             motion_state = find_lane_change
             if not braking_trigger_logged:

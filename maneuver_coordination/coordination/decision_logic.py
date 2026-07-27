@@ -3,6 +3,7 @@
 import math
 
 import maneuver_coordination.coordination.constants as C
+from maneuver_coordination.vehicle.model import LENGTH as DEFAULT_VEHICLE_LENGTH
 
 
 def transition_state(
@@ -57,23 +58,24 @@ def transition_state_cascading(
 
 
 def calc_priority(state, state2):
-    """Estimate request priority from the gap to the leading vehicle."""
+    """Estimate request priority from the approximate bumper gap to the lead."""
     params = C.PLANNER_PARAMS
     requesting_priority = C.Priority.LOW_PRIORITY
     dx1 = state.x - state2.x
     dy1 = state.y - state2.y
-    lead_car_distance = math.hypot(dx1, dy1) - 4
+    reference_distance = math.hypot(dx1, dy1)
+    bumper_gap = reference_distance - DEFAULT_VEHICLE_LENGTH
 
     time_gap = 1.0
     distance_gap_safe = params.safe_time_gap * state.v
     distance_gap = time_gap * state.v
     distance_gap_low = params.low_priority_time_gap * state.v
 
-    if state2.x > state.x and distance_gap_safe < lead_car_distance < distance_gap_low:
+    if state2.x > state.x and distance_gap_safe < bumper_gap < distance_gap_low:
         requesting_priority = C.Priority.LOW_PRIORITY
-    if state2.x > state.x and distance_gap < lead_car_distance < distance_gap_safe:
+    if state2.x > state.x and distance_gap < bumper_gap < distance_gap_safe:
         requesting_priority = C.Priority.MEDIUM_PRIORITY
-    if state2.x > state.x and lead_car_distance < distance_gap:
+    if state2.x > state.x and bumper_gap < distance_gap:
         requesting_priority = C.Priority.HIGH_PRIORITY
     if state.y > params.no_priority_y or state.x > state2.x:
         requesting_priority = C.Priority.NO_PRIORITY_REQUEST
@@ -215,14 +217,19 @@ def accepting_vehicle_states_downstream(
 
 
 def check_for_lane_change(state, state2, existing_rrt_length):
-    """Detect when a slower lead vehicle should trigger lane-change planning."""
+    """Detect when a slower lead vehicle should trigger lane-change planning.
+
+    The gap is an approximate bumper-to-bumper clearance from rear-axle state
+    references for identical vehicle geometry.
+    """
     params = C.PLANNER_PARAMS
     dx1 = state.x - state2.x
     dy1 = state.y - state2.y
-    lead_car_distance = math.hypot(dx1, dy1) - 4
+    reference_distance = math.hypot(dx1, dy1)
+    bumper_gap = reference_distance - DEFAULT_VEHICLE_LENGTH
     distance_gap = params.safe_time_gap * state.v
 
-    if lead_car_distance < distance_gap and state2.v < params.lane_change_trigger_speed and existing_rrt_length < 2:
+    if bumper_gap < distance_gap and state2.v < params.lane_change_trigger_speed and existing_rrt_length < 2:
         return True
     return False
 
@@ -232,6 +239,7 @@ def check_for_double_lane_change(state, state2, existing_rrt_length):
     params = C.PLANNER_PARAMS
     dx2 = state.x - state2.x
     dy2 = state.y - state2.y
-    lead_car_distance = math.hypot(dx2, dy2) - 4
+    reference_distance = math.hypot(dx2, dy2)
+    bumper_gap = reference_distance - DEFAULT_VEHICLE_LENGTH
     distance_gap = params.double_lane_change_time_gap * state.v
-    return existing_rrt_length > params.lane_change_path_points and lead_car_distance > distance_gap
+    return existing_rrt_length > params.lane_change_path_points and bumper_gap > distance_gap

@@ -19,6 +19,7 @@ from maneuver_coordination.simulation.core.history import append_history, init_v
 from maneuver_coordination.simulation.core.math_helpers import reached_goal
 from maneuver_coordination.simulation.motion.speed_profiles import calc_speed_profile_accepting_vehicle
 from maneuver_coordination.simulation.core.types import State, V2XMessage, VehicleConfig
+from maneuver_coordination.vehicle.model import LENGTH as DEFAULT_VEHICLE_LENGTH
 from maneuver_coordination.vehicle.plotting import connect_escape_key
 
 from maneuver_coordination.simulation.motion.adaptation import (
@@ -626,7 +627,7 @@ def run_rejected_request_then_free_lane_scenario(
         elif (
             time >= lead_braking_start_time
             and lead_state.x > ego_state.x
-            and (lead_state.x - ego_state.x - 4.0) < max(C.PLANNER_PARAMS.safe_time_gap * ego_state.v + 2.0, 40.0)
+            and (lead_state.x - ego_state.x - DEFAULT_VEHICLE_LENGTH) < max(C.PLANNER_PARAMS.safe_time_gap * ego_state.v + 2.0, 40.0)
         ):
             current_state = find_lane_change
             if not braking_trigger_logged:
