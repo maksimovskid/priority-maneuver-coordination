@@ -443,6 +443,8 @@ def build_requester_speed_profiles(
         target_ind = histories_by_role[requester_role].target_ind
 
         if bool(stage_spec["secondary"]):
+            # A secondary requester's speed_state belongs to the downstream
+            # accepting vehicle; only an explicit speed_delta applies here.
             speed_profiles[requester_role] = calc_speed_profile_accepting_vehicle(
                 local_path_x,
                 local_path_y,
@@ -450,7 +452,7 @@ def build_requester_speed_profiles(
                 target_speed,
                 requester_state,
                 int(stage_spec["motion_state"]),
-                coordination_by_requester[requester_role]["speed_state"],
+                follow_planned,
                 target_ind,
                 coordination_by_requester[requester_role].get("speed_delta"),
             )

@@ -360,6 +360,56 @@ class StructureSmokeTests(unittest.TestCase):
         self.assertEqual(profiles["ego"], [1.0])
         self.assertEqual(profiles["acceptor_1"], [2.0])
 
+    def test_secondary_requester_ignores_downstream_acceptor_speed_state(self):
+        requester_stage_specs = [
+            build_requester_stage_spec("acceptor_1", C.lane_change, "acceptor_2", "secondary", secondary=True),
+        ]
+        requester_local_paths = {
+            "acceptor_1": ([0.0, 1.0], [6.0, 10.0], [0.0, 0.0], [0.0, 0.0]),
+        }
+        requester_states = {"acceptor_1": State(v=7.0)}
+        requester_target_speeds = {"acceptor_1": 7.0}
+
+        class History:
+            target_ind = 0
+
+        profiles = build_requester_speed_profiles(
+            requester_stage_specs,
+            requester_local_paths,
+            requester_states,
+            requester_target_speeds,
+            {"acceptor_1": History()},
+            {"acceptor_1": {"speed_state": C.reduce_speed_for_req_medium, "speed_delta": None}},
+            State(),
+        )
+
+        self.assertEqual(profiles["acceptor_1"], [7.0, 7.0])
+
+    def test_secondary_requester_still_applies_explicit_speed_delta(self):
+        requester_stage_specs = [
+            build_requester_stage_spec("acceptor_1", C.lane_change, "acceptor_2", "secondary", secondary=True),
+        ]
+        requester_local_paths = {
+            "acceptor_1": ([0.0, 1.0], [6.0, 10.0], [0.0, 0.0], [0.0, 0.0]),
+        }
+        requester_states = {"acceptor_1": State(v=7.0)}
+        requester_target_speeds = {"acceptor_1": 7.0}
+
+        class History:
+            target_ind = 0
+
+        profiles = build_requester_speed_profiles(
+            requester_stage_specs,
+            requester_local_paths,
+            requester_states,
+            requester_target_speeds,
+            {"acceptor_1": History()},
+            {"acceptor_1": {"speed_state": C.follow_planned, "speed_delta": -1.5}},
+            State(),
+        )
+
+        self.assertEqual(profiles["acceptor_1"], [5.5, 5.5])
+
     def test_build_role_reference_trajectories_updates_histories_by_role(self):
         class History:
             def __init__(self):
@@ -681,6 +731,19 @@ class StructureSmokeTests(unittest.TestCase):
         events = result["events"]
         self.assertTrue(any("ID 1 motion -> lane_change" in event for event in events))
         self.assertTrue(any("ID 3 motion -> lane_change" in event for event in events))
+        id3_history = result["histories"][2]
+        id3_start_y = configs[2].start[1]
+        id3_target_y = float(configs[2].metadata["alt_goal_y"])
+        id3_lane_change_indices = [
+            index
+            for index, y in enumerate(id3_history.y)
+            if id3_start_y + 0.05 < y < id3_target_y - 0.2
+        ]
+        self.assertTrue(id3_lane_change_indices)
+        self.assertGreaterEqual(
+            min(id3_history.v[index] for index in id3_lane_change_indices),
+            configs[2].target_speed - 1e-9,
+        )
 
     def test_three_vehicle_coordination_regression_ego_requests_target_lane_vehicle(self):
         configs = build_default_three_vehicle_coordination_configs()
