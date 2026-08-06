@@ -53,6 +53,7 @@ from maneuver_coordination.simulation.runner import (
     run_three_vehicle_coordination_scenario,
 )
 from maneuver_coordination.simulation.core.types import PlannedPath, State
+from maneuver_coordination.simulation.visualization import build_vehicle_status_rows, vehicle_id_label_positions
 from maneuver_coordination.vehicle.model import LENGTH, MAX_STEER, WB
 import numpy as np
 
@@ -95,6 +96,42 @@ class StructureSmokeTests(unittest.TestCase):
         self.assertEqual(len(configs), 4)
         self.assertEqual(configs[1].start[0], 44.0)
         self.assertEqual(configs[2].initial_speed, 23.0 / 3.6)
+
+    def test_vehicle_status_rows_are_sorted_by_vehicle_id(self):
+        configs = list(reversed(build_default_two_vehicle_coordination_configs()))
+        states = [State(v=1.0), State(v=2.0), State(v=3.0)]
+
+        rows = build_vehicle_status_rows(configs, states, coordination_by_requester=None, active_receiver_roles=None)
+
+        self.assertEqual([config.vehicle_id for config, _, _ in rows], [1, 2, 3])
+        self.assertEqual([status for _, _, status in rows], ["normal", "normal", "normal"])
+
+    def test_vehicle_status_rows_include_requester_motion_state(self):
+        configs = build_default_two_vehicle_coordination_configs()
+        states = [State(v=1.0), State(v=2.0), State(v=3.0)]
+
+        rows = build_vehicle_status_rows(
+            configs,
+            states,
+            coordination_by_requester={
+                "ego": {
+                    "motion_state": C.lane_change,
+                    "request_state": C.execute_request,
+                    "accept_state": C.request_accepted,
+                }
+            },
+            active_receiver_roles=["acceptor"],
+        )
+
+        self.assertEqual([status for _, _, status in rows], ["requester/lane_change", "normal", "accepting"])
+
+    def test_vehicle_id_label_positions_separate_nearby_labels(self):
+        configs = build_default_two_vehicle_coordination_configs()[:2]
+        states = [State(x=10.0, y=2.0), State(x=10.5, y=2.1)]
+
+        positions = vehicle_id_label_positions(configs, states)
+
+        self.assertGreaterEqual(abs(positions[1][1] - positions[2][1]), 0.45)
 
     def test_rear_wheel_feedback_control_steers_toward_parallel_offset_path(self):
         state = State(x=4.5, y=2.0, yaw=0.0, v=8.0)

@@ -8,10 +8,8 @@ import numpy as np
 from maneuver_coordination.coordination import constants as C
 from maneuver_coordination.coordination.constants import send_request
 from maneuver_coordination.simulation.coordination.events import (
-    format_accept_state_label,
     format_motion_state_label,
     format_priority_label,
-    format_request_state_label,
     infer_vehicle_operation_label,
 )
 from maneuver_coordination.simulation.motion.reference import calc_ref_trajectory
@@ -125,7 +123,60 @@ def get_requested_plot_xref(
     return (plot_cache.get(role) or {}).get("xref")
 
 
-def add_vehicle_speed_overlay(
+def _display_color(color: str) -> str:
+    return color if not color.startswith("-") else color[1:]
+
+
+def build_vehicle_status_rows(
+    vehicle_configs: Sequence[VehicleConfig],
+    states: Sequence[State],
+    coordination_by_requester: Dict[str, Dict[str, int]] | None = None,
+    active_receiver_roles: Sequence[str] | None = None,
+) -> list[tuple[VehicleConfig, State, str]]:
+    """Return stable, compact per-vehicle status rows sorted by vehicle ID."""
+    rows = []
+    states_by_role = {config.role: state for config, state in zip(vehicle_configs, states)}
+    for config in sorted(vehicle_configs, key=lambda item: item.vehicle_id):
+        operation_label = infer_vehicle_operation_label(
+            config.role,
+            coordination_by_requester,
+            active_receiver_roles,
+        )
+        if operation_label == "requester":
+            motion_label = format_motion_state_label(
+                (coordination_by_requester or {}).get(config.role, {}).get("motion_state")
+            )
+            operation_label = f"requester/{motion_label}" if motion_label not in (None, "follow_lane") else "requester"
+        elif operation_label == "normal_operation":
+            operation_label = "normal"
+        elif operation_label == "acceptor":
+            operation_label = "accepting"
+        rows.append((config, states_by_role[config.role], operation_label))
+    return rows
+
+
+def vehicle_id_label_positions(
+    vehicle_configs: Sequence[VehicleConfig],
+    states: Sequence[State],
+    *,
+    x_offset: float = 0.4,
+    y_offset: float = 0.7,
+    min_y_spacing: float = 0.45,
+) -> Dict[int, tuple[float, float]]:
+    """Place short ID labels near vehicles while avoiding obvious overlap."""
+    positions: Dict[int, tuple[float, float]] = {}
+    placed: list[tuple[float, float]] = []
+    for config, state in sorted(zip(vehicle_configs, states), key=lambda item: item[0].vehicle_id):
+        label_x = state.x + x_offset
+        label_y = state.y + y_offset
+        while any(abs(label_x - used_x) < 4.0 and abs(label_y - used_y) < min_y_spacing for used_x, used_y in placed):
+            label_y += min_y_spacing
+        positions[config.vehicle_id] = (label_x, label_y)
+        placed.append((label_x, label_y))
+    return positions
+
+
+def add_vehicle_status_panel(
     vehicle_configs: Sequence[VehicleConfig],
     states: Sequence[State],
     time: float,
@@ -136,41 +187,56 @@ def add_vehicle_speed_overlay(
     receiver_accept_states: Dict[str, int] | None = None,
     recent_events: Sequence[str] | None = None,
 ) -> None:
-    """Draw the time, speed, role, and recent-event overlay above the frame."""
+    """Draw a compact fixed status panel beside the road animation."""
+    _ = (receiver_accept_states, recent_events)
     fig = plt.gcf()
-    fig.subplots_adjust(top=0.76)
+    fig.subplots_adjust(left=0.08, right=0.74, top=0.9, bottom=0.15)
     fig.texts.clear()
+    panel_box = {"facecolor": "white", "alpha": 0.9, "edgecolor": "0.75"}
+    text_box = {"facecolor": "white", "alpha": 0.75, "edgecolor": "none"}
+
     fig.text(
-        0.98,
-        0.99,
+        0.76,
+        0.94,
+        "Status",
+        fontsize=11,
+        weight="bold",
+        color="black",
+        ha="left",
+        va="top",
+        bbox=panel_box,
+    )
+    fig.text(
+        0.97,
+        0.94,
         f"t = {round(time, 2)} s",
-        fontsize=13,
+        fontsize=10,
         color="black",
         ha="right",
         va="top",
-        bbox={"facecolor": "white", "alpha": 0.85, "edgecolor": "none"},
+        bbox=text_box,
     )
-    text_box = {"facecolor": "white", "alpha": 0.75, "edgecolor": "none"}
-    vehicle_step = 0.96 / max(1, len(vehicle_configs))
-    base_x = 0.02
 
-    for idx, (config, state) in enumerate(zip(vehicle_configs, states)):
+    row_y = 0.88
+    row_step = 0.052
+    for config, state, operation_label in build_vehicle_status_rows(
+        vehicle_configs,
+        states,
+        coordination_by_requester,
+        active_receiver_roles,
+    ):
         speed_kmh = state.v * 3.6
-        vehicle_color = config.color if not config.color.startswith("-") else config.color[1:]
-        operation_label = infer_vehicle_operation_label(
-            config.role,
-            coordination_by_requester,
-            active_receiver_roles,
-        )
         fig.text(
-            base_x + idx * vehicle_step,
-            0.955,
-            f"ID {config.vehicle_id}: {speed_kmh:.1f} km/h | {operation_label}",
-            fontsize=10,
-            color=vehicle_color,
-            verticalalignment="top",
+            0.76,
+            row_y,
+            f"ID {config.vehicle_id} | {speed_kmh:.1f} km/h | {operation_label}",
+            fontsize=8.5,
+            color=_display_color(config.color),
+            ha="left",
+            va="top",
             bbox=text_box,
         )
+        row_y -= row_step
 
     priority_label = format_priority_label(priority)
     if priority_label is not None:
@@ -178,92 +244,31 @@ def add_vehicle_speed_overlay(
             (config for config in vehicle_configs if config.role == requester_role),
             vehicle_configs[0] if vehicle_configs else None,
         )
-        priority_color = "k" if requester_config is None else (
-            requester_config.color if not requester_config.color.startswith("-") else requester_config.color[1:]
-        )
+        priority_color = "k" if requester_config is None else _display_color(requester_config.color)
         fig.text(
-            0.02,
-            0.915,
+            0.76,
+            row_y - 0.01,
             f"priority: {priority_label}",
-            fontsize=11,
+            fontsize=9,
             color=priority_color,
-            verticalalignment="top",
+            ha="left",
+            va="top",
             bbox=text_box,
         )
-
-    if coordination_by_requester:
-        requester_items = list(coordination_by_requester.items())
-        requester_step = 0.96 / max(1, len(requester_items))
-        for idx, (requester_role_key, decision_state) in enumerate(requester_items):
-            requester_config = next(
-                (config for config in vehicle_configs if config.role == requester_role_key),
-                None,
-            )
-            if requester_config is None:
-                continue
-            decision_color = requester_config.color if not requester_config.color.startswith("-") else requester_config.color[1:]
-            motion_label = format_motion_state_label(decision_state.get("motion_state"))
-            request_label = format_request_state_label(decision_state.get("request_state"))
-            accept_label = format_accept_state_label(decision_state.get("accept_state"))
-            fig.text(
-                base_x + idx * requester_step,
-                0.88,
-                f"ID {requester_config.vehicle_id}: {motion_label} | {request_label} | {accept_label}",
-                fontsize=10,
-                color=decision_color,
-                verticalalignment="top",
-                bbox=text_box,
-            )
-
-    if receiver_accept_states:
-        receiver_parts = []
-        for receiver_role, accept_state in receiver_accept_states.items():
-            receiver_config = next(
-                (config for config in vehicle_configs if config.role == receiver_role),
-                None,
-            )
-            if receiver_config is None:
-                continue
-            accept_label = format_accept_state_label(accept_state)
-            receiver_parts.append(f"ID {receiver_config.vehicle_id}: {accept_label}")
-
-        if receiver_parts:
-            fig.text(
-                0.02,
-                0.845,
-                "acceptors: " + " | ".join(receiver_parts),
-                fontsize=10,
-                color="black",
-                verticalalignment="top",
-                bbox=text_box,
-            )
-
-    if recent_events:
-        event_y = 0.22
-        for event in recent_events[-3:]:
-            plt.gca().text(
-                0.02,
-                event_y,
-                event,
-                transform=plt.gca().transAxes,
-                fontsize=9,
-                color="black",
-                verticalalignment="top",
-                bbox=text_box,
-            )
-            event_y -= 0.06
+        row_y -= row_step
 
 
 def annotate_vehicle_ids(vehicle_configs: Sequence[VehicleConfig], states: Sequence[State]) -> None:
     """Draw vehicle IDs next to their current positions."""
+    label_positions = vehicle_id_label_positions(vehicle_configs, states)
     for config, state in zip(vehicle_configs, states):
-        vehicle_color = config.color if not config.color.startswith("-") else config.color[1:]
+        label_x, label_y = label_positions[config.vehicle_id]
         plt.text(
-            state.x + 0.4,
-            state.y + 0.7,
+            label_x,
+            label_y,
             f"ID {config.vehicle_id}",
             fontsize=10,
-            color=vehicle_color,
+            color=_display_color(config.color),
             ha="left",
             va="bottom",
             bbox={"facecolor": "white", "alpha": 0.65, "edgecolor": "none"},
@@ -363,7 +368,7 @@ def render_simulation_frame(
     plt.grid(False)
     plt.xlabel("x [m]", fontsize=15)
     plt.ylabel("y [m]", fontsize=15)
-    add_vehicle_speed_overlay(
+    add_vehicle_status_panel(
         vehicle_configs,
         frame_data["states"],
         frame_data["time"],
