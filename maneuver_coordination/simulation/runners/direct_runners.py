@@ -688,14 +688,15 @@ def run_rejected_request_then_free_lane_scenario(
             dl,
         )
 
-        requester_requested_trajectories = build_requester_requested_trajectories(
-            planner,
-            [build_requester_stage_spec(requester_role, planning_motion_state, "acceptor", "primary", secondary=False)],
-            {requester_role: ego_state},
-            planning_local_paths,
-            {requester_role: [config_by_role["ego"].target_speed for _ in ego_alt_path.x]},
-            dl,
+        # This scenario evaluates its configured alternate path directly while
+        # waiting; it does not request a generated RRT maneuver from the planner.
+        candidate_ref, _, _, candidate_enabled = planner._build_requested_trajectory(
+            ego_state, planning_local_paths[requester_role],
+            [config_by_role["ego"].target_speed for _ in ego_alt_path.x], dl,
         )
+        requester_requested_trajectories = {requester_role: {
+            "xref": candidate_ref, "enabled": candidate_enabled, "state": ego_state,
+        }}
         xreq = requester_requested_trajectories[requester_role]["xref"]
         req_traj = requester_requested_trajectories[requester_role]["enabled"]
         update_requested_plot_cache(

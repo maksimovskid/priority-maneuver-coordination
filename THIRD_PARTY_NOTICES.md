@@ -23,7 +23,8 @@ MIT License text:
 ```text
 MIT License
 
-Copyright (c) Atsushi Sakai and PythonRobotics contributors
+Copyright (c) 2016 - now Atsushi Sakai and other contributors:
+https://github.com/AtsushiSakai/PythonRobotics/contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

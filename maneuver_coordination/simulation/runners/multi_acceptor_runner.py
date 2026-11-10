@@ -35,7 +35,6 @@ from maneuver_coordination.vehicle.plotting import connect_escape_key
 from maneuver_coordination.simulation.motion.adaptation import (
     build_candidate_refs_for_accelerations,
     cooperative_acceleration_bounds,
-    latched_candidate_value,
     select_first_feasible_front_candidate,
     select_first_feasible_reduction_candidate,
     speed_state_for_priority,
@@ -61,10 +60,10 @@ from maneuver_coordination.simulation.coordination.messages import (
     emit_v2x_message_event,
     get_config_by_role,
     get_vehicle_inbox,
-    request_state_for_multi_acceptor,
 )
 from maneuver_coordination.simulation.motion.paths import build_paths_for_two_vehicle_coordination_configs
 from maneuver_coordination.simulation.coordination.roles import (
+    build_acc_speed_profile,
     build_delayed_speed_profile,
     detect_vehicle_collisions,
     find_target_lane_neighbors,
@@ -76,6 +75,7 @@ from maneuver_coordination.simulation.coordination.roles import (
     require_roles,
     should_trigger_maneuver_search,
 )
+from maneuver_coordination.simulation.coordination.multi_acceptor import offers_are_clear, response_to_message
 from maneuver_coordination.simulation.visualization import (
     capture_simulation_frame,
     get_requested_plot_xref,
@@ -136,7 +136,9 @@ def run_multi_acceptor_three_vehicle_coordination_scenario(
     acceleration_by_role: Dict[str, float | None] = {role: None for role in responder_roles}
     request_state = C.no_request_sent
     motion_state = C.follow_lane
-    selected_offer_ref_by_role: Dict[str, np.ndarray | None] = {role: None for role in responder_roles}
+    proposals_by_role = {role: None for role in responder_roles}
+    received_offers: set[str] = set()
+    received_accepts: set[str] = set()
     time = 0.0
     message_log: List[V2XMessage] = []
     event_log: List[str] = []
@@ -243,7 +245,7 @@ def run_multi_acceptor_three_vehicle_coordination_scenario(
         )
         requester_path_inputs = build_requester_path_inputs([requester_role], config_by_role, paths_by_role)
         aggregate_accept_state = C.no_request_received
-        if any(state == C.request_accepted for state in accept_state_by_role.values()):
+        if active_request_roles and all(accept_state_by_role[role] == C.request_accepted for role in active_request_roles):
             aggregate_accept_state = C.request_accepted
         elif any(state == C.offer for state in accept_state_by_role.values()):
             aggregate_accept_state = C.offer
@@ -306,11 +308,20 @@ def run_multi_acceptor_three_vehicle_coordination_scenario(
             "lead": (lead_path.x, lead_path.y, lead_path.yaw, lead_path.curvature, lead_speed_profile),
         }
 
-        raw_need_by_role: Dict[str, bool] = {}
-        responder_references: Dict[str, np.ndarray] = {}
-        offer_states_for_request: Dict[str, int] = {}
         response_messages: List[V2XMessage] = []
         confirm_messages: List[V2XMessage] = []
+
+        # Only messages delivered by the previous step can advance this step.
+        for message in vehicle_inboxes[config_by_role[requester_role].vehicle_id]:
+            if message.receiver_role != requester_role:
+                continue
+            if message.message_type == "maneuver_offer":
+                received_offers.add(message.sender_role)
+            elif message.message_type == "maneuver_accept":
+                received_accepts.add(message.sender_role)
+            elif message.message_type == "maneuver_reject":
+                received_offers.discard(message.sender_role)
+                received_accepts.discard(message.sender_role)
 
         requesting_priority = planner.calc_priority(ego_state, lead_state)
 
@@ -359,7 +370,6 @@ def run_multi_acceptor_three_vehicle_coordination_scenario(
                     req_traj,
                     candidate_refs,
                 )
-                adaptive_clear = selected_candidate is not None
                 adaptive_speed_state = speed_state_for_priority(requesting_priority, increase=False)
             else:
                 speed_profile = calc_speed_profile_downstream_accepting_vehicle(
@@ -402,94 +412,41 @@ def run_multi_acceptor_three_vehicle_coordination_scenario(
                     req_traj,
                     candidate_refs,
                 )
-                adaptive_clear = selected_candidate is not None
                 adaptive_speed_state = speed_state_for_priority(requesting_priority, increase=True)
 
-            raw_need_by_role[responder_role] = not direct_clear
-            responder_references[responder_role] = direct_ref
-            selected_offer_ref_by_role[responder_role] = (
-                selected_candidate["xref"] if selected_candidate is not None else None
+            feasible_proposal = (
+                {"xref": direct_ref, "final_speed": speed_profile[0],
+                 "speed_delta": 0.0, "acceleration": None}
+                if direct_clear else selected_candidate
             )
+            if feasible_proposal is not None:
+                feasible_proposal = dict(feasible_proposal, time=time)
+            for message in vehicle_inboxes[config_by_role[responder_role].vehicle_id]:
+                if message.sender_role != requester_role or message.receiver_role != responder_role:
+                    continue
+                if message.message_type not in ("maneuver_request", "confirm_offer"):
+                    continue
+                previous_response = accept_state_by_role[responder_role]
+                if message.message_type == "maneuver_request" and previous_response not in (C.offer, C.request_accepted):
+                    proposals_by_role[responder_role] = feasible_proposal
+                proposal = proposals_by_role[responder_role]
+                response = response_to_message(
+                    previous_response, proposal, message.message_type,
+                    use_offer_confirmation=use_offer_confirmation,
+                )
+                accept_state_by_role[responder_role] = response
+                if response in (C.offer, C.request_accepted, C.request_rejected):
+                    kind = {C.offer: "maneuver_offer", C.request_accepted: "maneuver_accept",
+                            C.request_rejected: "maneuver_reject"}[response]
+                    response_messages.append(emit_v2x_message_event(
+                        time, responder_role, requester_role, requesting_priority,
+                        kind, config_by_role, {"stage": responder_role},
+                    ))
+                if response == C.request_accepted and proposal is not None:
+                    speed_delta_by_role[responder_role] = proposal["speed_delta"]
+                    acceleration_by_role[responder_role] = proposal["acceleration"]
+                    speed_state_by_role[responder_role] = adaptive_speed_state if proposal["speed_delta"] else C.follow_planned
 
-            if request_state == C.send_request and not use_offer_confirmation:
-                if direct_clear:
-                    accept_state_by_role[responder_role] = C.request_accepted
-                    speed_state_by_role[responder_role] = C.follow_planned
-                    speed_delta_by_role[responder_role] = None
-                    acceleration_by_role[responder_role] = None
-                elif adaptive_clear:
-                    accept_state_by_role[responder_role] = C.request_accepted
-                    speed_state_by_role[responder_role] = adaptive_speed_state
-                    speed_delta_by_role[responder_role] = latched_candidate_value(
-                        speed_delta_by_role[responder_role],
-                        accept_state_by_role[responder_role],
-                        selected_candidate,
-                        "speed_delta",
-                    )
-                    acceleration_by_role[responder_role] = latched_candidate_value(
-                        acceleration_by_role[responder_role],
-                        accept_state_by_role[responder_role],
-                        selected_candidate,
-                        "acceleration",
-                    )
-                    responder_references[responder_role] = selected_offer_ref_by_role[responder_role]
-                else:
-                    accept_state_by_role[responder_role] = C.request_rejected
-                    speed_state_by_role[responder_role] = C.follow_planned
-                    speed_delta_by_role[responder_role] = None
-                    acceleration_by_role[responder_role] = None
-            elif request_state == C.confirm_offers:
-                if accept_state_by_role[responder_role] == C.offer:
-                    accept_state_by_role[responder_role] = C.request_accepted
-                    speed_state_by_role[responder_role] = adaptive_speed_state
-                    speed_delta_by_role[responder_role] = latched_candidate_value(
-                        speed_delta_by_role[responder_role],
-                        accept_state_by_role[responder_role],
-                        selected_candidate,
-                        "speed_delta",
-                    )
-                    acceleration_by_role[responder_role] = latched_candidate_value(
-                        acceleration_by_role[responder_role],
-                        accept_state_by_role[responder_role],
-                        selected_candidate,
-                        "acceleration",
-                    )
-                    responder_references[responder_role] = selected_offer_ref_by_role[responder_role]
-                    confirm_messages.append(
-                        emit_v2x_message_event(
-                            time,
-                            requester_role,
-                            responder_role,
-                            requesting_priority,
-                            "confirm_offer",
-                            config_by_role,
-                            {"stage": responder_role},
-                        )
-                    )
-            elif request_state in (C.execute_request, C.no_need_for_request):
-                if accept_state_by_role[responder_role] == C.offer:
-                    accept_state_by_role[responder_role] = C.request_accepted
-                    speed_state_by_role[responder_role] = adaptive_speed_state
-                    speed_delta_by_role[responder_role] = latched_candidate_value(
-                        speed_delta_by_role[responder_role],
-                        accept_state_by_role[responder_role],
-                        selected_candidate,
-                        "speed_delta",
-                    )
-                    acceleration_by_role[responder_role] = latched_candidate_value(
-                        acceleration_by_role[responder_role],
-                        accept_state_by_role[responder_role],
-                        selected_candidate,
-                        "acceleration",
-                    )
-                    responder_references[responder_role] = selected_offer_ref_by_role[responder_role]
-            elif request_state == C.no_request_sent:
-                accept_state_by_role[responder_role] = C.no_request_received
-                speed_state_by_role[responder_role] = C.follow_planned
-                speed_delta_by_role[responder_role] = None
-                acceleration_by_role[responder_role] = None
-
-            offer_states_for_request[responder_role] = accept_state_by_role[responder_role]
             role_specific_paths[responder_role] = (
                 responder_path.x,
                 responder_path.y,
@@ -498,8 +455,11 @@ def run_multi_acceptor_three_vehicle_coordination_scenario(
                 speed_profile,
             )
 
-        if not active_request_roles and any(raw_need_by_role.values()):
-            active_request_roles = {role for role, needed in raw_need_by_role.items() if needed}
+        if req_traj and not active_request_roles and motion_state == C.find_lane_change:
+            # This runner negotiates a joint maneuver with the selected target-
+            # lane neighbors. A feasible unchanged plan is a response, not a
+            # substitute for that participant's delivered agreement.
+            active_request_roles = set(target_lane_neighbors.values()).intersection(responder_roles)
         if motion_state == C.follow_second_lane:
             active_request_roles.clear()
             for responder_role in responder_roles:
@@ -507,48 +467,45 @@ def run_multi_acceptor_three_vehicle_coordination_scenario(
                 acceleration_by_role[responder_role] = None
 
         need_by_role = {
-            role: (role in active_request_roles) if active_request_roles else raw_need_by_role[role]
+            role: role in active_request_roles
             for role in responder_roles
         }
 
-        offers_are_mutually_clear = True
-
-        if use_offer_confirmation and request_state == C.send_request:
-            for responder_role in responder_roles:
-                if need_by_role[responder_role]:
-                    accept_state_by_role[responder_role] = C.offer
-                    response_messages.append(
-                        emit_v2x_message_event(
-                            time,
-                            responder_role,
-                            requester_role,
-                            requesting_priority,
-                            "maneuver_offer",
-                            config_by_role,
-                            {"stage": responder_role},
-                        )
-                    )
-        elif not use_offer_confirmation and request_state == C.send_request:
-            for responder_role in responder_roles:
-                if need_by_role[responder_role]:
-                    accept_state_by_role[responder_role] = C.request_accepted
-                    speed_state_by_role[responder_role] = (
-                        speed_state_for_priority(requesting_priority, increase=False)
-                        if responder_role == "target_lane_rear"
-                        else speed_state_for_priority(requesting_priority, increase=True)
-                    )
-
-        next_request_state = request_state_for_multi_acceptor(
-            motion_state,
-            need_by_role,
-            accept_state_by_role,
-            offer_states_for_request if use_offer_confirmation and offers_are_mutually_clear else None,
-        )
-        if next_request_state == C.execute_request and request_state == C.no_request_sent:
+        required_roles = {role for role, needed in need_by_role.items() if needed}
+        combined_clear = offers_are_clear(
+            proposals_by_role, required_roles, xreq, ego_state.v, time=time,
+        ) if req_traj else False
+        if motion_state == C.follow_second_lane:
+            next_request_state = C.no_request_sent
+        elif request_state in (C.execute_request, C.no_need_for_request):
+            next_request_state = request_state
+        elif motion_state != C.find_lane_change:
+            next_request_state = C.no_request_sent
+        elif req_traj and not required_roles:
+            next_request_state = C.no_need_for_request
+        elif (required_roles <= received_accepts and combined_clear
+              and all(accept_state_by_role[role] == C.request_accepted for role in required_roles)):
+            next_request_state = C.execute_request
+        elif (use_offer_confirmation and required_roles <= received_offers and combined_clear
+              and all(accept_state_by_role[role] in (C.offer, C.request_accepted) for role in required_roles)):
+            next_request_state = C.confirm_offers
+        else:
             next_request_state = C.send_request
         request_state = next_request_state
         if request_state in (C.execute_request, C.no_need_for_request):
             motion_state = C.lane_change
+
+        if motion_state in (C.follow_lane, C.find_lane_change):
+            # Negotiation has not authorized lateral motion. Continue following
+            # the current lane, braking behind its actual leader when needed.
+            ego_path = paths_by_role[requester_role]
+            waiting_profile = build_acc_speed_profile(
+                ego_path, ego_state, config_by_role[requester_role].target_speed,
+                lead_state if lead_role is not None else None,
+            )
+            role_specific_paths[requester_role] = (
+                ego_path.x, ego_path.y, ego_path.yaw, ego_path.curvature, waiting_profile,
+            )
 
         request_candidates = [
             build_request_message_candidates(
@@ -580,6 +537,11 @@ def run_multi_acceptor_three_vehicle_coordination_scenario(
             },
         )
         step_messages = emit_request_messages(time, request_candidates, config_by_role)
+        if request_state == C.confirm_offers:
+            confirm_messages = [emit_v2x_message_event(
+                time, requester_role, role, requesting_priority, "confirm_offer",
+                config_by_role, {"stage": role},
+            ) for role in sorted(required_roles)]
         step_messages.extend(response_messages)
         step_messages.extend(confirm_messages)
         message_log.extend(step_messages)

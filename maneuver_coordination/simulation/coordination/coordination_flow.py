@@ -107,17 +107,8 @@ def build_requester_stage_inputs(
             motion_state,
         )
     )
-    if (
-        not req_enabled
-        and motion_state in (C.find_lane_change, C.lane_change)
-        and len(local_path_x) > 0
-    ):
-        xreq, _, _, req_enabled = planner._build_requested_trajectory(
-            requester_state,
-            (local_path_x, local_path_y, local_path_yaw, []),
-            speed_profile,
-            dl,
-        )
+    # A missing generated/committed maneuver is unavailable. The current-lane
+    # tracking path is not evidence that a cooperative maneuver was planned.
     return build_requester_stage_data(xreq, req_enabled, requester_state)
 
 

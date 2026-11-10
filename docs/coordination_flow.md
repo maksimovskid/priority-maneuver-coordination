@@ -69,10 +69,13 @@ message sequence:
 1. `request`: requester asks target-lane vehicles for cooperation.
 2. `offer`: each feasible acceptor offers an adapted trajectory.
 3. `confirm`: requester confirms the combined offer set.
-4. `accept`: acceptors commit and the requester executes.
+4. `accept`: each acceptor responds to a delivered confirm; the requester
+   executes only after every required accept is delivered.
 
-The purpose of the confirm step is to avoid committing individual vehicles to
-adaptations before the requester has checked the combined response.
+The confirm step follows delivered feasible offers and a clearance check of the
+requester and required proposal pairs at shared sample times. An infeasible or
+missing response blocks execution. While waiting, the requester keeps its
+current-lane path and uses ACC-style following rather than forcing the maneuver.
 
 Current implementation note: this is still a simplified message model. Messages
 carry sender/receiver IDs, roles, priority labels, and small payload metadata,

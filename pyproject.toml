@@ -29,6 +29,7 @@ maneuver-coordination = "maneuver_coordination.cli:main"
 
 [tool.setuptools]
 include-package-data = true
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 
 [tool.setuptools.packages.find]
 include = ["maneuver_coordination*"]

@@ -1,24 +1,40 @@
 """Shared helpers for trajectory conflict checks."""
 
 import math
+import operator
 
 
 def conflict_time_indices(speed, horizon_length, lane_change_distance=12.0, dt=0.1):
     """Choose representative start/middle/end samples for conflict checking."""
+    if horizon_length <= 0:
+        raise ValueError("A conflict sample requires a nonempty horizon")
     safe_speed = max(abs(speed), 1e-6)
     lane_change_time = lane_change_distance / safe_speed
 
     t1 = 0
     t2 = int(round((lane_change_time / 2.0) / dt))
-    t3 = int(round(lane_change_time / dt) - 1)
+    t3 = int(round(lane_change_time / dt))
 
     max_index = max(0, horizon_length - 1)
     return min(t1, max_index), min(t2, max_index), min(t3, max_index)
 
 
-def sampled_clearances(xreq, xref, speed, first_offset=2.0, later_offset=4.0, lane_change_distance=12.0, dt=0.1):
-    """Compute clearance margins between a requested and planned trajectory."""
-    t1, t2, t3 = conflict_time_indices(speed, xreq.shape[1], lane_change_distance=lane_change_distance, dt=dt)
+def sampled_clearances(xreq, xref, speed, first_offset=2.0, later_offset=4.0, lane_change_distance=12.0, dt=0.1, *, valid_count=None):
+    """Compare the common horizon; unavailable samples have infeasible margins.
+
+    Generated trajectories are compact. For external padded arrays, valid_count
+    limits both inputs to their populated prefix; padding is never inferred from
+    coordinates because zero is valid geometry.
+    """
+    horizon_length = min(xreq.shape[1], xref.shape[1])
+    if valid_count is not None:
+        valid_count = operator.index(valid_count)
+        if valid_count < 0:
+            raise ValueError("valid_count must be nonnegative")
+        horizon_length = min(horizon_length, valid_count)
+    if horizon_length == 0:
+        return (-math.inf, -math.inf, -math.inf)
+    t1, t2, t3 = conflict_time_indices(speed, horizon_length, lane_change_distance=lane_change_distance, dt=dt)
 
     dx1 = xreq[0, t1] - xref[0, t1]
     dy1 = xreq[1, t1] - xref[1, t1]

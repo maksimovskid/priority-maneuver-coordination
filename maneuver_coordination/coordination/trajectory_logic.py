@@ -16,9 +16,9 @@ def empty_requested_trajectory():
     """Return an empty requested-trajectory placeholder."""
     params = C.PLANNER_PARAMS
     return (
-        np.zeros((params.nx, params.horizon_steps + params.lane_change_path_padding)),
+        np.empty((params.nx, 0)),
         0,
-        np.zeros((1, params.horizon_steps + params.lane_change_path_padding)),
+        np.empty((1, 0)),
         False,
     )
 
@@ -43,11 +43,11 @@ def build_requested_trajectory(state, path_segment, sp, dl, nearest_index_fn):
     """Sample the requester's future cooperative trajectory on a local path."""
     params = C.PLANNER_PARAMS
     cx, cy, cyaw, _ = path_segment
-    xreq = np.zeros((params.nx, params.horizon_steps + params.lane_change_path_padding))
-    dreq = np.zeros((1, params.horizon_steps + params.lane_change_path_padding))
-
     if len(cx) == 0:
-        return xreq, 0, dreq, False
+        return empty_requested_trajectory()
+
+    xreq = np.zeros((params.nx, params.horizon_steps))
+    dreq = np.zeros((1, params.horizon_steps))
 
     indq, _ = nearest_index_fn(state, cx, cy, cyaw)
     ncourse = len(cx)
@@ -82,43 +82,6 @@ def build_requested_trajectory(state, path_segment, sp, dl, nearest_index_fn):
 
 def calc_ref_trajectory(state, cx, cy, cyaw, ck, sp, dl, nearest_index_fn):
     """Build a short-horizon planned trajectory for conflict checks."""
-    _ = ck
-    params = C.PLANNER_PARAMS
-    xref = np.zeros((params.nx, params.horizon_steps + params.lane_change_path_padding))
-    dref = np.zeros((1, params.horizon_steps + params.lane_change_path_padding))
-    ncourse = len(cx)
-
-    ind, _ = nearest_index_fn(state, cx, cy, cyaw)
-
-    xref[0, 0] = cx[ind]
-    xref[1, 0] = cy[ind]
-    xref[2, 0] = sp[ind]
-    xref[3, 0] = cyaw[ind]
-    dref[0, 0] = 0.0
-
-    travel = 0.0
-    predicted_speed = state.v
-    predicted_acceleration = getattr(state, "a", 0.0)
-    for i in range(params.horizon_steps):
-        step_travel, predicted_speed = _advance_prediction_travel(
-            predicted_speed,
-            predicted_acceleration,
-            params.dt,
-        )
-        travel += step_travel
-        dind = int(round(travel / dl))
-
-        if (ind + dind) < ncourse:
-            xref[0, i] = cx[ind + dind]
-            xref[1, i] = cy[ind + dind]
-            xref[2, i] = sp[ind + dind]
-            xref[3, i] = cyaw[ind + dind]
-            dref[0, i] = 0.0
-        else:
-            xref[0, i] = cx[ncourse - 1]
-            xref[1, i] = cy[ncourse - 1]
-            xref[2, i] = sp[ncourse - 1]
-            xref[3, i] = cyaw[ncourse - 1]
-            dref[0, i] = 0.0
-
-    return xref, ind, dref
+    return build_requested_trajectory(
+        state, (cx, cy, cyaw, ck), sp, dl, nearest_index_fn,
+    )[:3]

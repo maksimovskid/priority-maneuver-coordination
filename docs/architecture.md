@@ -33,7 +33,7 @@ Contains cooperative decision-making logic:
 
 Contains the geometric path-planning algorithms used by the maneuver planners:
 
-- `hybrid_a_star.py`: Hybrid A* path search used for lane-change path generation
+- `hybrid_a_star.py`: Hybrid A* path search used for nominal and alternate reference paths
 - `a_star.py`: dynamic-programming/A* helper used internally by Hybrid A*
 - `reeds_shepp_path_planning.py`: Reeds-Shepp curve generation
 - `rrt.py`: basic RRT implementation

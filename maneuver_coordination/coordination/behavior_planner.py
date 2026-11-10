@@ -35,7 +35,7 @@ from maneuver_coordination.coordination.trajectory_logic import (
     empty_requested_trajectory as compute_empty_requested_trajectory,
     select_requested_path as compute_selected_requested_path,
 )
-from maneuver_coordination.motion_planning.cubic_spline_planner import Spline2D
+from maneuver_coordination.simulation.motion.reference import build_curvature
 try:
     from maneuver_coordination.motion_planning.rrt_reeds_shepp import RRTReedsShepp
 except ImportError:
@@ -181,6 +181,8 @@ class BehaviouralLocalPlanner:
         setattr(self, self._path_found_attr(role), value)
 
     def _append_path_segment(self, path_key, path_segment):
+        if len(path_segment) != len(self.AXES) or len({len(axis) for axis in path_segment}) != 1:
+            raise ValueError("Path geometry, yaw, and curvature must have equal lengths.")
         for values, buffer_values in zip(path_segment, self.path_buffers[path_key]):
             buffer_values.extend(values)
 
@@ -188,16 +190,34 @@ class BehaviouralLocalPlanner:
     def _reference_path(cx, cy, cyaw, ck):
         return ReferencePath(cx, cy, cyaw, ck)
 
-    def _append_reference_suffix(self, path_key, reference_path, start_index):
-        if len(reference_path.x) <= 1:
+    def _append_reference_suffix(self, path_key, reference_path):
+        if len(reference_path.x) == 0 or not self._has_path(path_key):
             return
 
-        start_index = min(start_index, len(reference_path.x) - 1)
+        endpoint_x = self.path_buffers[path_key][0][-1]
+        endpoint_y = self.path_buffers[path_key][1][-1]
+        start_index = min(
+            range(len(reference_path.x)),
+            key=lambda index: (reference_path.x[index] - endpoint_x) ** 2
+            + (reference_path.y[index] - endpoint_y) ** 2,
+        )
+        endpoint_yaw = self.path_buffers[path_key][2][-1]
+        while start_index < len(reference_path.x):
+            dx = reference_path.x[start_index] - endpoint_x
+            dy = reference_path.y[start_index] - endpoint_y
+            yaw = reference_path.yaw[start_index]
+            if (
+                math.hypot(dx, dy) > 1e-9
+                and dx * math.cos(yaw) + dy * math.sin(yaw) >= -1e-9
+                and dx * math.cos(endpoint_yaw) + dy * math.sin(endpoint_yaw) >= -1e-9
+            ):
+                break
+            start_index += 1
         suffix_segment = (
-            reference_path.x[start_index:-1],
-            reference_path.y[start_index:-1],
-            reference_path.yaw[start_index:-1],
-            reference_path.curvature[start_index:-1],
+            reference_path.x[start_index:],
+            reference_path.y[start_index:],
+            reference_path.yaw[start_index:],
+            reference_path.curvature[start_index:],
         )
         self._append_path_segment(path_key, suffix_segment)
 
@@ -284,15 +304,13 @@ class BehaviouralLocalPlanner:
                 obstacleList,
             )
 
-            target_index, _ = calc_nearest_index(state, target_cx, target_cy, target_cyaw)
-            target_suffix_start = target_index + C.LANE_CHANGE_PATH_PADDING
-
             self._append_path_segment(generated_key, lane_change_segment)
-            self._set_path_found(role, True)
+            self._set_path_found(role, self._has_path(generated_key))
+            if not self._get_path_found(role):
+                return *self._base_path(current_lane_path), False
             self._append_reference_suffix(
                 generated_key,
                 target_lane_path,
-                target_suffix_start,
             )
 
             if accepting_vehicle_state == C.AcceptState.REQUEST_ACCEPTED:
@@ -301,7 +319,6 @@ class BehaviouralLocalPlanner:
                 self._append_reference_suffix(
                     committed_key,
                     target_lane_path,
-                    target_suffix_start,
                 )
 
             path_found = self._get_path_found(role)
@@ -310,7 +327,7 @@ class BehaviouralLocalPlanner:
             _debug('committed lane-change length:', self.committed_path_length(role))
             return *self._base_path(current_lane_path), path_found
         elif current_state == C.MotionState.LANE_CHANGE:
-            self._set_path_found(role, True)
+            self._set_path_found(role, self._has_path(committed_key) or self._has_path(generated_key))
             path_found = self._get_path_found(role)
             if self._has_path(committed_key):
                 return *self._path_tuple(committed_key), path_found
@@ -392,21 +409,19 @@ class BehaviouralLocalPlanner:
                 obstacleList,
             )
 
-            current_lane_index, _ = calc_nearest_index(state, cx, cy, cyaw)
-            current_lane_suffix_start = current_lane_index + C.LANE_CHANGE_PATH_PADDING
-
             return_key = self._generated_path_key(self.RETURN_ROLE)
             committed_key = self._committed_path_key(self.REQUESTER_ROLE)
             self._reset_path_group(return_key)
             self._append_path_segment(return_key, double_lane_segment)
-            self.double_lane_change_path_found = True
+            self.double_lane_change_path_found = self._has_path(return_key)
             self._append_reference_suffix(
                 return_key,
                 current_lane_path,
-                current_lane_suffix_start,
             )
 
-            return *self._path_tuple(committed_key), path_found
+            if self._has_path(committed_key):
+                return *self._path_tuple(committed_key), path_found
+            return *self._base_path(current_lane_path), path_found
 
         elif current_state == C.MotionState.DOUBLE_LANE_CHANGE:
             return_key = self._generated_path_key(self.RETURN_ROLE)
@@ -788,18 +803,7 @@ class BehaviouralLocalPlanner:
 
     @staticmethod
     def _curvature_from_xy(path_x, path_y):
-        if len(path_x) < 2 or len(path_y) < 2:
-            return []
-
-        spline = Spline2D(path_x, path_y)
-        if not spline.s:
-            return []
-
-        samples = np.arange(0, spline.s[-1], 0.1)
-        if len(samples) == 0:
-            return [spline.calc_curvature(0.0)]
-
-        return [spline.calc_curvature(i_s) for i_s in samples]
+        return build_curvature(path_x, path_y)[2]
 
     @staticmethod
     def _build_rrt_path(target_x, target_y, target_yaw, state, obstacle_list, goal_offset):
@@ -815,7 +819,7 @@ class BehaviouralLocalPlanner:
         rrt_reeds_shepp = RRTReedsShepp(start_rrt, goal_rrt, obstacle_list, params.rrt_search_area)
         rrt_path = rrt_reeds_shepp.planning(animation=SHOW_ANIMATION)
         if not rrt_path:
-            raise ValueError("RRT lane change planning failed to produce a path.")
+            return [], [], [], []
 
         path_x = np.array([node[0] for node in rrt_path])[::-1]
         path_y = np.array([node[1] for node in rrt_path])[::-1]

@@ -82,9 +82,11 @@ def build_fallback_paths(
             continue
 
         step = 0.1
-        cx = list(np.arange(start_x, target_x + step, step))
+        cx = list(np.arange(start_x, target_x, step))
+        cx.append(target_x)
         cy = []
         cyaw = []
+        ck = []
         lane_delta = target_y - start_y
 
         for x in cx:
@@ -95,11 +97,13 @@ def build_fallback_paths(
 
             if 0.0 < progress < 1.0:
                 dy_dx = lane_delta * (6.0 * progress * (1.0 - progress)) / transition_length
+                d2y_dx2 = lane_delta * (6.0 - 12.0 * progress) / transition_length ** 2
             else:
                 dy_dx = 0.0
+                d2y_dx2 = 0.0
             cyaw.append(math.atan2(dy_dx, 1.0))
+            ck.append(d2y_dx2 / (1.0 + dy_dx ** 2) ** 1.5)
 
-        _, _, ck = build_curvature(cx, cy)
         speed_profile = calc_speed_profile(cx, cy, cyaw, config.target_speed)
         fallback_paths[config.fallback_path_key] = PlannedPath(cx, cy, cyaw, ck, alt_goal, speed_profile)
 

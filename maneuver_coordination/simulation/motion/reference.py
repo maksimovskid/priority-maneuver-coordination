@@ -34,29 +34,22 @@ def calc_ref_trajectory(
 ) -> Tuple[np.ndarray, int, np.ndarray]:
     """Build the short-horizon reference trajectory tracked by the controller."""
     _ = ck
-    xref = np.zeros((NX, T + 100))
-    dref = np.zeros((1, T + 100))
+    xref = np.zeros((NX, T if len(cx) else 0))
+    dref = np.zeros((1, xref.shape[1]))
     ncourse = len(cx)
 
     if ncourse == 0:
-        xref[0, :] = state.x
-        xref[1, :] = state.y
-        xref[2, :] = state.v
-        xref[3, :] = state.yaw
         return xref, 0, dref
 
     ind, _ = calc_nearest_index(state, cx, cy, cyaw)
 
-    xref[0, 0] = cx[ind]
-    xref[1, 0] = cy[ind]
-    xref[2, 0] = sp[ind]
-    xref[3, 0] = cyaw[ind]
+    xref[:, 0] = [state.x, state.y, state.v, state.yaw]
     dref[0, 0] = 0.0
 
     travel = 0.0
     predicted_speed = state.v
     predicted_acceleration = getattr(state, "a", 0.0)
-    for i in range(T):
+    for i in range(1, T):
         step_travel, predicted_speed = _advance_prediction_travel(
             predicted_speed,
             predicted_acceleration,
@@ -86,36 +79,35 @@ def build_reference_for_speed(
     use_abs_diff: bool = True,
 ) -> Tuple[np.ndarray, int, np.ndarray]:
     """Build a reference using a speed-offset prediction model."""
-    xref = np.zeros((NX, T + 100))
-    dref = np.zeros((1, T + 100))
+    xref = np.zeros((NX, T if len(cx) else 0))
+    dref = np.zeros((1, xref.shape[1]))
     ncourse = len(cx)
 
     if ncourse == 0:
-        xref[0, :] = state.x
-        xref[1, :] = state.y
-        xref[2, :] = state.v
-        xref[3, :] = state.yaw
         return xref, 0, dref
 
     ind, _ = calc_nearest_index(state, cx, cy, cyaw)
 
-    xref[0, 0] = cx[ind]
-    xref[1, 0] = cy[ind]
-    xref[2, 0] = speed_profile[ind]
-    xref[3, 0] = cyaw[ind]
+    xref[:, 0] = [state.x, state.y, state.v, state.yaw]
     dref[0, 0] = 0.0
 
     travel = 0.0
     predicted_speed = state.v
     predicted_acceleration = getattr(state, "a", 0.0)
-    for i in range(T):
-        _, predicted_speed = _advance_prediction_travel(
+    for i in range(1, T):
+        next_speed = _advance_prediction_travel(
             predicted_speed,
             predicted_acceleration,
             DT,
-        )
-        step_speed = abs(predicted_speed - speed_offset) if use_abs_diff else (abs(predicted_speed) - speed_offset)
-        travel += max(0.0, step_speed) * DT
+        )[1]
+        start_speed = predicted_speed - speed_offset
+        end_speed = next_speed - speed_offset
+        if use_abs_diff:
+            start_speed, end_speed = abs(start_speed), abs(end_speed)
+        else:
+            start_speed, end_speed = max(0.0, start_speed), max(0.0, end_speed)
+        travel += 0.5 * (start_speed + end_speed) * DT
+        predicted_speed = next_speed
         dind = int(round(travel / dl))
         idx = min(ind + dind, ncourse - 1)
 
@@ -137,28 +129,21 @@ def build_reference_for_target_speed(
     target_speed: float,
 ) -> Tuple[np.ndarray, int, np.ndarray]:
     """Build a reference assuming the vehicle tracks a constant target speed."""
-    xref = np.zeros((NX, T + 100))
-    dref = np.zeros((1, T + 100))
+    xref = np.zeros((NX, T if len(cx) else 0))
+    dref = np.zeros((1, xref.shape[1]))
     ncourse = len(cx)
 
     if ncourse == 0:
-        xref[0, :] = state.x
-        xref[1, :] = state.y
-        xref[2, :] = target_speed
-        xref[3, :] = state.yaw
         return xref, 0, dref
 
     ind, _ = calc_nearest_index(state, cx, cy, cyaw)
 
-    xref[0, 0] = cx[ind]
-    xref[1, 0] = cy[ind]
-    xref[2, 0] = target_speed
-    xref[3, 0] = cyaw[ind]
+    xref[:, 0] = [state.x, state.y, state.v, state.yaw]
     dref[0, 0] = 0.0
 
     travel = 0.0
     step_speed = max(0.0, target_speed)
-    for i in range(T):
+    for i in range(1, T):
         travel += step_speed * DT
         dind = int(round(travel / dl))
         idx = min(ind + dind, ncourse - 1)
@@ -181,28 +166,21 @@ def build_reference_for_acceleration(
     acceleration: float,
 ) -> Tuple[np.ndarray, int, np.ndarray, float]:
     """Build a reference under constant acceleration and return final speed."""
-    xref = np.zeros((NX, T + 100))
-    dref = np.zeros((1, T + 100))
+    xref = np.zeros((NX, T if len(cx) else 0))
+    dref = np.zeros((1, xref.shape[1]))
     ncourse = len(cx)
 
     if ncourse == 0:
-        xref[0, :] = state.x
-        xref[1, :] = state.y
-        xref[2, :] = state.v
-        xref[3, :] = state.yaw
         return xref, 0, dref, state.v
 
     ind, _ = calc_nearest_index(state, cx, cy, cyaw)
 
-    xref[0, 0] = cx[ind]
-    xref[1, 0] = cy[ind]
-    xref[2, 0] = state.v
-    xref[3, 0] = cyaw[ind]
+    xref[:, 0] = [state.x, state.y, state.v, state.yaw]
     dref[0, 0] = 0.0
 
     travel = 0.0
     predicted_speed = state.v
-    for i in range(T):
+    for i in range(1, T):
         step_travel, predicted_speed = _advance_prediction_travel(
             predicted_speed,
             acceleration,
@@ -233,7 +211,7 @@ def build_three_candidate_refs(
     """Build the legacy low/medium/high speed-reduction references."""
     refs = []
     ind = 0
-    dref = np.zeros((1, T + 100))
+    dref = np.zeros((1, T if len(cx) else 0))
 
     for reduction in reductions:
         new_target_speed = state.v - reduction
@@ -259,8 +237,33 @@ def plan_path(start: Sequence[float], goal: Sequence[float], ox: Sequence[float]
 
 
 def build_curvature(path_x: Sequence[float], path_y: Sequence[float], ds: float = 0.1):
-    """Fit a spline through path points and sample curvature along it."""
-    spl = Spline2D(path_x, path_y)
-    s = np.arange(0, spl.s[-1], ds)
-    ck = [spl.calc_curvature(i_s) for i_s in s]
-    return spl, s, ck
+    """Return curvature at each original path knot, retaining repeated points.
+
+    ds is retained for call compatibility; input geometry is not resampled.
+    """
+    if len(path_x) != len(path_y):
+        raise ValueError("Path x and y must have equal lengths.")
+    if len(path_x) == 0:
+        return None, np.empty(0), []
+    points = np.column_stack((path_x, path_y))
+    if not np.isfinite(points).all():
+        raise ValueError("Path coordinates must be finite.")
+    keep = np.r_[True, np.any(np.diff(points, axis=0) != 0.0, axis=1)]
+    unique_points = points[keep]
+    if len(unique_points) < 2:
+        return None, np.zeros(len(points)), [0.0] * len(points)
+
+    spl = Spline2D(unique_points[:, 0], unique_points[:, 1])
+    curvature = []
+    for sample in spl.s:
+        # The legacy derivative API cannot evaluate its terminal knot.
+        parameter = min(sample, np.nextafter(spl.s[-1], -np.inf))
+        dx, dy = spl.sx.calcd(parameter), spl.sy.calcd(parameter)
+        ddx, ddy = spl.sx.calcdd(parameter), spl.sy.calcdd(parameter)
+        speed_squared = dx * dx + dy * dy
+        if speed_squared == 0.0:
+            raise ValueError("Curvature is undefined at a stationary spline point.")
+        curvature.append((dx * ddy - dy * ddx) / speed_squared ** 1.5)
+    indices = np.cumsum(keep) - 1
+    s = np.asarray(spl.s)[indices]
+    return spl, s, [curvature[index] for index in indices]

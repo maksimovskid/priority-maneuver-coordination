@@ -59,6 +59,18 @@ In the current simulation, this follows the paper style of a short horizon:
 - horizon steps: `20`
 - horizon duration: about `2 s`
 
+For every sampled reference, index 0 is the actual state at time `t`, and index
+`i` represents `t + i * 0.1 s`. The 20 samples cover `t` through `t + 1.9 s`.
+Generated arrays contain only populated samples. An unavailable path returns
+zero columns and is infeasible for conflict evaluation; it is not a stationary
+replacement path. External padded arrays must provide their populated prefix
+with `valid_count`, or be sliced before checking. Comparisons use the common
+valid horizon, including when received proposals have aged by message steps.
+
+Geometric x, y, yaw, curvature, and speed profiles refer to the same path points
+and have equal length. Curvature is evaluated at those points, not at a separate
+uniform resampling of the spline. Controllers track that full geometric path.
+
 Planned trajectories are used for:
 
 - conflict checks

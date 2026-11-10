@@ -4,15 +4,9 @@ Python simulation framework for cooperative lane-change planning, maneuver coord
 
 Originally developed as a research prototype, the codebase was restructured into a clean and modular package architecture to improve usability, readability, and extensibility.
 
-AI-assisted development (Codex) was used to support refactoring, code structuring, and iterative improvements, while system design, algorithms, and validation were developed and verified independently.
-
-The project demonstrates scalable coordination strategies and serves as a foundation for further research in connected and automated driving.
+The project demonstrates direct, multi-vehicle, and cascading coordination in small configured scenarios and serves as a foundation for further research in connected and automated driving.
 
 ## Demo
-
-### Cascading Coordination
-
-![Cascading coordination demo](docs/media/cascading_coordination_animation.gif)
 
 ### Two-Vehicle Coordination
 
@@ -21,6 +15,10 @@ The project demonstrates scalable coordination strategies and serves as a founda
 ### Three-Vehicle Coordination
 
 ![Three-vehicle coordination demo](docs/media/three_vehicles_coordination_animation.gif)
+
+### Cascading Coordination
+
+![Cascading coordination demo](docs/media/cascading_coordination_animation.gif)
 
 ### Summary Plots
 
@@ -69,22 +67,24 @@ If you use this repository for academic or published work, please cite the PriMa
 
 Install the package locally:
 
-```bash
+```cmd
 python -m venv .venv
 .venv\Scripts\activate
-pip install -e .
+python -m pip install -e .
 ```
+
+On Linux/macOS, activate with `source .venv/bin/activate` instead. Python 3.10 or newer is required.
 
 Run one scenario:
 
 ```bash
-python run.py cascading_coordination
+python run.py two_vehicles_coordination
 ```
 
 Run headlessly and save plots/GIF output:
 
 ```bash
-python run.py cascading_coordination --no-animation --save-output-dir output --save-animation
+python run.py two_vehicles_coordination --no-animation --save-output-dir output --save-animation
 ```
 
 Run tests:
@@ -146,10 +146,14 @@ A three-vehicle coordination scenario on a 2-lane road:
 
 - `ID 1` is the requesting vehicle
 - `ID 2` is the slowing vehicle ahead that triggers coordination
-- `ID 3` is the rear target-lane vehicle and cooperates by slowing down
-- `ID 4` is the front target-lane vehicle and cooperates by speeding up
+- `ID 3` is the rear target-lane vehicle and can cooperate by slowing down
+- `ID 4` is the front target-lane vehicle and can cooperate by speeding up
 
-The goal of this scenario is to create a safe gap through coordination between three vehicles so that `ID 1` can change lane and continue driving in the target lane.
+Each selected participant must agree, but a feasible unchanged plan is accepted
+without forcing a speed change. With the corrected sample timing, the supplied
+three-vehicle runs can agree on unchanged target-lane plans.
+
+The goal of this scenario is to agree on a usable gap through coordination between three vehicles so that `ID 1` can change lane and continue driving in the target lane. Adaptation is used when the unchanged plans are infeasible.
 
 Run it with:
 
@@ -164,7 +168,7 @@ A three-vehicle coordination scenario with a more explicit message-exchange flow
 - maneuver request
 - maneuver offer
 - offer confirmation
-- maneuver acceptance and execution
+- maneuver acceptance followed by execution
 
 Run it with:
 
@@ -278,16 +282,15 @@ The repository includes a simple message layer:
 - requests are emitted every simulation step when a requester is actively sending a request
 - messages contain sender ID, receiver ID, priority, and small payload metadata
 - each receiver has a per-step inbox
-- accept/reject logic is gated by delivered request messages
+- response decisions are gated by delivered requests; multi-acceptor confirmation and execution also require delivered offers and accepts
 
 The paper-oriented message concepts represented in the repo are:
 
 - request
 - offer
 - confirm
-- accept
-- reject
-- execute-style maneuver approval
+- accept/reject decisions (explicit response messages in the multi-acceptor flow; shared state in direct/cascading flows)
+- execute-style maneuver approval state
 - cascading request/response behavior
 
 This is still a simplified communication model. Vehicles still have direct access to some shared trajectory information for conflict checking, and not every paper-level message type is fully modeled yet. In particular, `cancel`, `abort`, `emergency`, and explicit unique request-ID handling are not yet represented as complete end-to-end features in the current implementation.
@@ -301,8 +304,8 @@ The live simulation includes:
 - short-horizon future planned trajectories shown as vehicle-colored dots
 - requested cooperative trajectories shown as yellow dots while the cooperative request is active
 - vehicle IDs drawn near each vehicle
-- a top overlay showing speed and dynamic coordination status
-- a small recent-events ticker inside the plot
+- a fixed side panel showing speed and dynamic coordination status in vehicle-ID order
+- simulation time and request priority beside the road view
 
 The requested cooperative trajectory disappears again after the cooperative maneuver execution phase has finished.
 
@@ -440,10 +443,10 @@ For adding future scenarios, see:
 
 For local development:
 
-```bash
+```cmd
 python -m venv .venv
 .venv\Scripts\activate
-pip install -e .
+python -m pip install -e .
 ```
 
 ## Docker
@@ -466,29 +469,31 @@ Run a specific scenario:
 
 ```bash
 docker run --rm maneuver-coordination python run.py two_vehicles_coordination
-docker run --rm maneuver-coordination python run.py cascading_coordination
 docker run --rm maneuver-coordination python run.py three_vehicles_coordination
 docker run --rm maneuver-coordination python run.py three_vehicles_coordination_4_messages
+docker run --rm maneuver-coordination python run.py cascading_coordination
 docker run --rm maneuver-coordination python run.py rejected_request_then_free_lane
 ```
 
-Save summary PNG outputs from a headless Docker run:
+Save summary PNG outputs from a headless Docker run (Windows CMD):
 
-```bash
-docker run --rm -v "${PWD}\output:/app/output" maneuver-coordination python run.py cascading_coordination --no-animation --save-output-dir /app/output
+```cmd
+docker run --rm -v "%cd%\output:/app/output" maneuver-coordination python run.py two_vehicles_coordination --no-animation --save-output-dir /app/output
 ```
 
 Save summary PNGs plus a GIF animation from a headless Docker run:
 
-```bash
-docker run --rm -v "${PWD}\output:/app/output" maneuver-coordination python run.py cascading_coordination --no-animation --save-output-dir /app/output --save-animation
+```cmd
+docker run --rm -v "%cd%\output:/app/output" maneuver-coordination python run.py two_vehicles_coordination --no-animation --save-output-dir /app/output --save-animation
 ```
 
 This writes files such as:
 
-- `cascading_coordination_trajectories.png`
-- `cascading_coordination_speeds.png`
-- `cascading_coordination_animation.gif`
+- `two_vehicles_coordination_trajectories.png`
+- `two_vehicles_coordination_speeds.png`
+- `two_vehicles_coordination_animation.gif`
+
+For a Linux/macOS shell, use `-v "$(pwd)/output:/app/output"` instead.
 
 Run the tests in Docker:
 
@@ -506,7 +511,7 @@ Note:
 
 ## Running
 
-Default scenario:
+Default scenario (cascading coordination):
 
 ```bash
 python run.py
@@ -515,27 +520,30 @@ python run.py
 Explicit scenarios:
 
 ```bash
-python run.py cascading_coordination
 python run.py two_vehicles_coordination
+python run.py three_vehicles_coordination
+python run.py three_vehicles_coordination_4_messages
+python run.py cascading_coordination
+python run.py rejected_request_then_free_lane
 ```
 
 Headless run with saved summary plots:
 
 ```bash
-python run.py cascading_coordination --no-animation --save-output-dir output
+python run.py two_vehicles_coordination --no-animation --save-output-dir output
 ```
 
 Headless run with saved summary plots and a GIF animation:
 
 ```bash
-python run.py cascading_coordination --no-animation --save-output-dir output --save-animation
+python run.py two_vehicles_coordination --no-animation --save-output-dir output --save-animation
 ```
 
 This writes files such as:
 
-- `output/cascading_coordination_trajectories.png`
-- `output/cascading_coordination_speeds.png`
-- `output/cascading_coordination_animation.gif`
+- `output/two_vehicles_coordination_trajectories.png`
+- `output/two_vehicles_coordination_speeds.png`
+- `output/two_vehicles_coordination_animation.gif`
 
 If you want to show one of these animations on GitHub, a good pattern is:
 
@@ -544,7 +552,7 @@ If you want to show one of these animations on GitHub, a good pattern is:
 3. embed it in `README.md` with normal Markdown, for example:
 
 ```md
-![Cascading coordination demo](docs/media/cascading_coordination_animation.gif)
+![Two-vehicle coordination demo](docs/media/two_vehicles_coordination_animation.gif)
 ```
 
 Package entrypoint:
@@ -583,7 +591,21 @@ The repository is now in a much better state than the original prototype:
 - collision detection is active in simulation
 - the runnable scenarios are covered by smoke/helper tests
 
-That said, this is still an actively evolving simulation codebase, not a finished general-purpose framework.
+This repository is a research/prototype implementation complete for its documented validation scenarios. It is not a production driving system, a general-purpose maneuver-coordination framework, or an exact reproduction of every paper experiment.
+
+Scope and reproducibility limits:
+
+- Roads are straight, with fixed lane centers inferred from lateral position; vehicle geometry is shared and the bicycle model is simplified.
+- Conflict checks sample a few trajectory points and use approximate clearances. Runtime vehicle-collision detection uses a reference-point distance threshold, not full oriented footprints or continuous swept-volume checks. These checks do not establish a general safety guarantee.
+- Multi-acceptor execution requires feasible proposals and delivered agreement from the selected target-lane neighbors. A clear unchanged plan is a valid response; missing or rejected responses keep the requester in lane with ACC-style following.
+- Controllers track the full local geometric path and its speed profile. Yellow requested trajectories are rolling negotiation/visualization samples, not a separate fixed accepted trajectory used for tracking.
+- Candidate checks assume the candidate target speed immediately; executed speed changes use bounded feedback control. Dynamic feasibility, tire limits, and comfort are not validated by this model.
+- Candidate speed changes are searched in 5% steps up to 20%, 40%, and 75%. Their corresponding acceleration magnitudes reach 2.0, 4.0, and 7.5 m/s^2; the configured high-priority ceiling of 9.5 m/s^2 is not reached by the current candidate grid. Legacy discrete speed-state offsets also remain in use.
+- Runs can terminate when any vehicle reaches its goal, after the lane change but before all vehicles reach their endpoints. Completion states use lateral thresholds and do not certify zero heading or tracking error.
+- The bundled RRT-Reeds-Shepp sampler's default goal bias selects the goal on every iteration (`randint(0, 1)` compared with `10`). The current demonstrations run with this legacy behavior; arbitrary obstacle-search capability is not validated.
+- Dependencies have lower bounds rather than a locked environment; preserve the commit and installed dependency versions when reproducing results. No CI workflow is included.
+
+The related [Artery implementation](https://github.com/maksimovskid/artery-maneuver-coordination) provides a separate V2X/ITS-G5 environment using OMNeT++, Artery, Vanetza, and SUMO. This Python repository is the lightweight algorithmic simulation environment and does not provide that network stack or equivalent validation.
 
 The biggest future directions are:
 
@@ -611,6 +633,6 @@ The current code already supports:
 - a cascading multi-vehicle coordination scenario
 - a rejected-request fallback scenario
 - dynamic requester and acceptor behavior during runtime
-- terminal and live-plot event tracking
+- terminal event tracking and live status visualization
 
 and it has been significantly cleaned up so it is much more suitable for further development and for a GitHub repository.
